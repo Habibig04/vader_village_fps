@@ -197,6 +197,7 @@ struct Game {
         int W = GetScreenWidth(), H = GetScreenHeight();
         Vector3 f = Vector3Normalize(cam.target - cam.position);
         BeginTextureMode(sceneRT);
+        ClearBackground(C(105, 155, 215));
         DrawRectangleGradientV(0, 0, rtW, rtH, C(105, 155, 215), C(225, 235, 242));
         BeginMode3D(cam);
         if (map.ready) map.draw(cam.position, f, dist);
@@ -561,11 +562,11 @@ struct Game {
         else if (map.ready) show3D(mapCam(map, bgT, 0.2f), 1000.f, false);
         dimAll(170);
         centerText("SETTINGS", S(40), S(44), WHITE, W);
-        navKeys(sSet, 11);
+        navKeys(sSet, 12);
         char vbuf[32];
-        const char* names[10] = {"MOUSE SENSITIVITY", "FIELD OF VIEW", "GRAPHICS PRESET", "RENDER SCALE", "FPS LIMIT",
-                                 "MASTER VOLUME", "VIEW BOBBING", "SHOW FPS", "AUTO PERFORMANCE", "RESET TO DEFAULTS"};
-        for (int i = 0; i < 10; i++) {
+        const char* names[11] = {"MOUSE SENSITIVITY", "FIELD OF VIEW", "GRAPHICS PRESET", "RENDER SCALE", "FPS LIMIT",
+                                 "MASTER VOLUME", "VIEW BOBBING", "SHOW FPS", "AUTO PERFORMANCE", "FULLSCREEN", "RESET TO DEFAULTS"};
+        for (int i = 0; i < 11; i++) {
             const char* v = "";
             switch (i) {
                 case 0: snprintf(vbuf, sizeof vbuf, "%.2f", st.sens); v = vbuf; break;
@@ -577,9 +578,10 @@ struct Game {
                 case 6: v = st.bob ? "ON" : "OFF"; break;
                 case 7: v = st.showFps ? "ON" : "OFF"; break;
                 case 8: v = st.autoQ ? "ON" : "OFF"; break;
+                case 9: v = IsWindowFullscreen() ? "ON" : "OFF"; break;
                 default: v = "PRESS ENTER"; break;
             }
-            Rectangle r = RR((float)(W / 2 - S(330)), (float)(S(110) + i * S(50)), (float)S(660), (float)S(42));
+            Rectangle r = RR((float)(W / 2 - S(330)), (float)(S(110) + i * S(46)), (float)S(660), (float)S(40));
             int dir = optRow(i, sSet, r, names[i], v, S(20));
             if (dir == 0) continue;
             switch (i) {
@@ -592,6 +594,7 @@ struct Game {
                 case 6: st.bob = !st.bob; break;
                 case 7: st.showFps = !st.showFps; break;
                 case 8: st.autoQ = !st.autoQ; break;
+                case 9: ToggleFullscreen(); break;
                 default: {
                     Settings d;
                     d.quality = detectQuality();
@@ -605,9 +608,9 @@ struct Game {
             applySettings();
             makeRT(false);
         }
-        Rectangle rb = RR((float)(W / 2 - S(330)), (float)(S(110) + 10 * S(50) + S(12)), (float)S(660), (float)S(50));
+        Rectangle rb = RR((float)(W / 2 - S(330)), (float)(S(110) + 11 * S(46) + S(10)), (float)S(660), (float)S(46));
         bool leave = IsKeyPressed(KEY_ESCAPE);
-        if (button(10, sSet, rb, "BACK", S(24)) || leave) {
+        if (button(11, sSet, rb, "BACK", S(24)) || leave) {
             saveSettings(st, cfgPath.c_str());
             scene = retScene;
             if (scene == SC_PLAY) { DisableCursor(); GetMouseDelta(); }
@@ -668,6 +671,7 @@ struct Game {
         gUi = GetScreenHeight() / 720.f;
         makeRT(false);
         if (msgT > 0.f) msgT -= dt;
+        if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
         BeginDrawing();
         ClearBackground(BLACK);
         switch (scene) {
