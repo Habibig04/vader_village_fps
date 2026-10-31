@@ -1,4 +1,5 @@
 #pragma once
+#define RAYMATH_DISABLE_CPP_OPERATORS
 #include "raylib.h"
 #include "raymath.h"
 #include <vector>
