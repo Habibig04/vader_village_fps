@@ -20,6 +20,7 @@ struct Settings {
     bool bob = true;
     bool showFps = false;
     bool autoQ = true;
+    std::string name = "PLAYER";
 };
 
 inline long long systemRamMB() {
@@ -52,24 +53,34 @@ inline void clampSettings(Settings& s) {
     s.scalePct = std::clamp(s.scalePct, 50, 100);
     s.fpsIdx = std::clamp(s.fpsIdx, 0, 4);
     s.volume = std::clamp(s.volume, 0, 100);
+    if (s.name.empty()) s.name = "PLAYER";
+    if (s.name.size() > 12) s.name.resize(12);
 }
 
 inline void saveSettings(const Settings& s, const char* path) {
     FILE* f = fopen(path, "w");
     if (!f) return;
-    fprintf(f, "sens %.3f\nfov %d\nquality %d\nscale %d\nfps %d\nvolume %d\nbob %d\nshowfps %d\nautoq %d\n",
-            s.sens, s.fov, s.quality, s.scalePct, s.fpsIdx, s.volume, s.bob ? 1 : 0, s.showFps ? 1 : 0, s.autoQ ? 1 : 0);
+    fprintf(f, "sens %.3f\nfov %d\nquality %d\nscale %d\nfps %d\nvolume %d\nbob %d\nshowfps %d\nautoq %d\nname %s\n",
+            s.sens, s.fov, s.quality, s.scalePct, s.fpsIdx, s.volume, s.bob ? 1 : 0, s.showFps ? 1 : 0, s.autoQ ? 1 : 0, s.name.c_str());
     fclose(f);
 }
 
 inline bool loadSettings(Settings& s, const char* path) {
     FILE* f = fopen(path, "r");
     if (!f) return false;
-    char k[32];
-    float v = 0;
+    char line[128];
     int found = 0;
-    while (fscanf(f, "%31s %f", k, &v) == 2) {
+    while (fgets(line, sizeof line, f)) {
         found++;
+        if (!strncmp(line, "name ", 5)) {
+            std::string n(line + 5);
+            while (!n.empty() && (n.back() == '\n' || n.back() == '\r')) n.pop_back();
+            s.name = n;
+            continue;
+        }
+        char k[32];
+        float v = 0;
+        if (sscanf(line, "%31s %f", k, &v) != 2) continue;
         if (!strcmp(k, "sens")) s.sens = v;
         else if (!strcmp(k, "fov")) s.fov = (int)v;
         else if (!strcmp(k, "quality")) s.quality = (int)v;
