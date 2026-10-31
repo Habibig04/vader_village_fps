@@ -243,8 +243,20 @@ struct Match {
         float k = Clamp((p.grounded ? 14.f : 3.f) * dt, 0.f, 1.f);
         p.vel.x += (wish.x * spd - p.vel.x) * k;
         p.vel.z += (wish.z * spd - p.vel.z) * k;
-        if (p.grounded && IsKeyPressed(KEY_SPACE)) p.vel.y = 7.6f;
-        mp->moveBody(p.pos, p.vel, dt, 0.35f, 1.8f, p.grounded);
+        bool ladder = mp->nearLadder(p.pos, 0.6f) && (IsKeyDown(KEY_W) || IsKeyDown(KEY_S) || IsKeyDown(KEY_SPACE));
+        if (ladder) {
+            p.vel.x = wish.x * 2.5f;
+            p.vel.z = wish.z * 2.5f;
+            mp->moveBody(p.pos, p.vel, dt, 0.35f, 1.8f, p.grounded);
+            float cl = IsKeyDown(KEY_S) ? -3.f : 3.5f;
+            p.vel.y = 0.f;
+            float ny = p.pos.y + cl * dt;
+            if (!mp->blocked(p.pos.x, ny, p.pos.z, 0.35f, 1.8f)) p.pos.y = ny;
+            p.grounded = false;
+        } else {
+            if (p.grounded && IsKeyPressed(KEY_SPACE)) p.vel.y = 7.6f;
+            mp->moveBody(p.pos, p.vel, dt, 0.35f, 1.8f, p.grounded);
+        }
         if (p.grounded) p.bob += dt * sqrtf(p.vel.x * p.vel.x + p.vel.z * p.vel.z) * 1.6f;
 
         for (int i = 0; i < 4; i++) if (IsKeyPressed(KEY_ONE + i)) switchTo(p, i);
@@ -407,6 +419,19 @@ struct Match {
         if (np.y > b.pos.y + 0.45f && l < 1.6f) b.jumpReq = true;
     }
 
+    void rescuePlayer() {
+        Actor& p = A[0];
+        bool inside = mp->blocked(p.pos.x, p.pos.y, p.pos.z, 0.35f, 1.8f);
+        if (p.pos.y < 0.3f || inside) {
+            int u = mp->randomNode();
+            if (u >= 0) {
+                p.pos = mp->nodePos(u);
+                p.vel = V(0, 0, 0);
+                p.grounded = true;
+            }
+        }
+    }
+
     void endSolo() {
         over = true;
         timeLeft = 0;
@@ -435,7 +460,10 @@ struct Match {
             A[i].respawnT -= dt;
             if (A[i].respawnT <= 0.f) spawn((int)i);
         }
-        if (A[0].alive) updatePlayer(dt, st);
+        if (A[0].alive) {
+            rescuePlayer();
+            updatePlayer(dt, st);
+        }
         for (size_t i = 1; i < A.size(); i++) if (A[i].alive) botThink(i, dt);
         if (solo()) {
             timeLeft -= dt;
