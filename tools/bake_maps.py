@@ -11,6 +11,7 @@ NONSOLID = {
     "Double_Tallgrass", "Dead_Bush", "Sugar_Cane", "Rail", "Cobweb", "Ladder", "Yellow_Carpet", "Kelp",
     "Potted_Dandelion",
 }
+CLIMB = {"Ladder"}
 
 def parse_mtl(path):
     mats = {}; cur = None
@@ -100,6 +101,22 @@ def bake(name, obj_path, mtl_path, out_dir, tex_dir):
 
     packed = np.packbits(solid_flat, bitorder="little")
 
+    climb_flat = np.zeros(nx * ny * nz, bool)
+    cl_tris = []
+    for gname, tris in groups:
+        if gname in CLIMB and tris:
+            arr = np.array(tris, np.int64)
+            cl_tris.append((V[arr[:, :, 0]], VN[arr[:, 0, 2]]))
+    for cp, cn in cl_tris:
+        for k2 in [0.0, 0.1, -0.1]:
+            pts = cp.mean(1) + cn * k2
+            ix = np.floor((pts[:, 0] - origin[0]) / CELL).astype(np.int64)
+            iy = np.floor((pts[:, 1] - origin[1]) / CELL).astype(np.int64)
+            iz = np.floor((pts[:, 2] - origin[2]) / CELL).astype(np.int64)
+            ok = (ix >= 0) & (ix < nx) & (iy >= 0) & (iy < ny) & (iz >= 0) & (iz < nz)
+            climb_flat[(iy[ok] * nz + iz[ok]) * nx + ix[ok]] = True
+    cpacked = np.packbits(climb_flat, bitorder="little")
+
     os.makedirs(out_dir, exist_ok=True)
     for t in tex_names:
         if t and os.path.exists(os.path.join(tex_dir, t)):
@@ -134,7 +151,7 @@ def bake(name, obj_path, mtl_path, out_dir, tex_dir):
     alpha_tex = {i for i, t in enumerate(tex_names) if "RGBA" in t}
     with open(os.path.join(out_dir, "map.vmap"), "wb") as f:
         f.write(b"VMAP")
-        f.write(struct.pack("<I", 1))
+        f.write(struct.pack("<I", 2))
         f.write(struct.pack("<f", CELL))
         f.write(struct.pack("<3f", *origin))
         f.write(struct.pack("<3i", nx, ny, nz))
@@ -155,6 +172,8 @@ def bake(name, obj_path, mtl_path, out_dir, tex_dir):
             f.write(idx.astype("<u4").tobytes())
         f.write(struct.pack("<I", len(packed)))
         f.write(packed.tobytes())
+        f.write(struct.pack("<I", len(cpacked)))
+        f.write(cpacked.tobytes())
 
     print(f"{name}: tris={len(P)} chunks={len(chunks)} grid={nx}x{ny}x{nz} solid={int(solid_flat.sum())} textures={tex_names} bytes={os.path.getsize(os.path.join(out_dir, 'map.vmap'))}")
 
