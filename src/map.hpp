@@ -22,6 +22,7 @@ struct Map {
     Vector3 org{0, 0, 0};
     int nx = 0, ny = 0, nz = 0;
     std::vector<unsigned char> bits;
+    std::vector<unsigned char> cbits;
     std::vector<MapChunk> chunks;
     std::vector<Material> mats;
     std::vector<Texture2D> texs;
@@ -54,6 +55,7 @@ struct Map {
         texAlpha.clear();
         if (f) { fclose(f); f = nullptr; }
         std::vector<unsigned char>().swap(bits);
+        std::vector<unsigned char>().swap(cbits);
         std::vector<unsigned char>().swap(gcnt);
         std::vector<unsigned char>().swap(gmain);
         std::vector<float>().swap(glvl);
@@ -73,7 +75,7 @@ struct Map {
         char mg[4] = {0, 0, 0, 0};
         uint32_t ver = 0, nt = 0, nc = 0;
         int dims[3] = {0, 0, 0};
-        if (!rd(f, mg, 4) || memcmp(mg, "VMAP", 4) != 0 || !rd(f, &ver, 4) || ver != 1 ||
+        if (!rd(f, mg, 4) || memcmp(mg, "VMAP", 4) != 0 || !rd(f, &ver, 4) || ver != 2 ||
             !rd(f, &cell, 4) || !rd(f, &org, 12) || !rd(f, dims, 12) || !rd(f, &nt, 4)) { fail(); return false; }
         nx = dims[0]; ny = dims[1]; nz = dims[2];
         for (uint32_t i = 0; i < nt; i++) {
@@ -159,6 +161,10 @@ struct Map {
         if (!rd(f, &npk, 4)) return false;
         bits.resize(npk);
         if (npk && !rd(f, bits.data(), npk)) return false;
+        uint32_t ncb = 0;
+        if (!rd(f, &ncb, 4)) return false;
+        cbits.resize(ncb);
+        if (ncb && !rd(f, cbits.data(), ncb)) return false;
         Vector3 mn = V(1e9f, 1e9f, 1e9f), mx = V(-1e9f, -1e9f, -1e9f);
         for (auto& c : chunks) {
             mn = V(fminf(mn.x, c.mn.x), fminf(mn.y, c.mn.y), fminf(mn.z, c.mn.z));
@@ -180,6 +186,23 @@ struct Map {
         if (x < 0 || z < 0 || x >= nx || z >= nz) return true;
         size_t i = ((size_t)y * nz + z) * nx + x;
         return (bits[i >> 3] >> (i & 7)) & 1;
+    }
+
+    bool climbAt(int x, int y, int z) const {
+        if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) return false;
+        size_t i = ((size_t)y * nz + z) * nx + x;
+        return (cbits[i >> 3] >> (i & 7)) & 1;
+    }
+
+    bool nearLadder(Vector3 p, float r) const {
+        if (cbits.empty()) return false;
+        int x0 = vx(p.x - r), x1 = vx(p.x + r), z0 = vz(p.z - r), z1 = vz(p.z + r);
+        int y0 = vy(p.y + 0.2f), y1 = vy(p.y + 1.6f);
+        for (int iy = y0; iy <= y1; iy++)
+            for (int iz = z0; iz <= z1; iz++)
+                for (int ix = x0; ix <= x1; ix++)
+                    if (climbAt(ix, iy, iz)) return true;
+        return false;
     }
 
     bool blocked(float x, float y, float z, float r, float h) const {
