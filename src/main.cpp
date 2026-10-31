@@ -9,7 +9,7 @@
 #include "match.hpp"
 #include "ui.hpp"
 
-enum Scene { SC_HOME, SC_MAPSEL, SC_MODESEL, SC_DIFFSEL, SC_LOADING, SC_PLAY, SC_PAUSE, SC_SETTINGS, SC_END };
+enum Scene { SC_HOME, SC_MAPSEL, SC_MODESEL, SC_DIFFSEL, SC_LOADING, SC_PLAY, SC_PAUSE, SC_SETTINGS, SC_END, SC_NAME };
 
 static const char* TIPS[] = {
     "Headshots deal 2.5 times the normal damage.",
@@ -64,6 +64,7 @@ struct Game {
     float perfT = 0, sinceStart = 0, cooldown = 0;
     int perfN = 0;
     bool quit = false;
+    std::string nameBuf;
 
     void setMsg(const std::string& m, float t = 2.5f) { msg = m; msgT = t; }
 
@@ -182,7 +183,7 @@ struct Game {
         pos.x += sinf(p.bob) * 0.006f * inv * bobAmt;
         pos.y += fabsf(cosf(p.bob)) * 0.006f * inv * bobAmt - 0.12f * ra;
         pos.z += p.kick * 0.06f;
-        DrawModelEx(wm[p.weapon], pos, V(1, 0, 0), p.kick * 3.f + ra * 25.f, V(1, 1, 1), WHITE);
+        DrawModelEx(wm[p.weapon], pos, V(1, 0, 0), p.kick * 3.f + ra * 25.f, V(0.3f, 0.3f, 0.3f), WHITE);
         if (p.flash > 0.f) {
             Vector3 m = V(pos.x, pos.y + 0.01f, pos.z - wd.len / 2 - 0.04f);
             DrawSphere(m, 0.035f * frange(0.8f, 1.4f), C(255, 200, 90));
@@ -345,18 +346,52 @@ struct Game {
         centerText("VADER VILLAGE", H / 6, S(84), WHITE, W);
         centerText("Team deathmatch and free for all across four biomes", H / 6 + S(96), S(26), C(225, 225, 225), W);
         if (map.ready && map.id >= 0) centerText(MAPS[map.id].name, H / 6 + S(140), S(22), C(255, 220, 90), W);
-        navKeys(sHome, 3);
-        const char* labels[3] = {"PLAY", "SETTINGS", "QUIT"};
-        for (int i = 0; i < 3; i++) {
-            Rectangle r = RR((float)(W / 2 - S(180)), (float)(H / 2 + S(10) + i * S(72)), (float)S(360), (float)S(56));
+        navKeys(sHome, 4);
+        std::string nameLabel = "PLAYER NAME:  " + st.name;
+        const char* labels[4] = {"PLAY", nameLabel.c_str(), "SETTINGS", "QUIT"};
+        for (int i = 0; i < 4; i++) {
+            Rectangle r = RR((float)(W / 2 - S(200)), (float)(H / 2 + S(10) + i * S(72)), (float)S(400), (float)S(56));
             if (button(i, sHome, r, labels[i], S(26))) {
                 if (i == 0) { sMap = selMap; previewMap = -1; mapT = 0; scene = SC_MAPSEL; }
-                else if (i == 1) { retScene = SC_HOME; sSet = 0; scene = SC_SETTINGS; }
+                else if (i == 1) { nameBuf = st.name; scene = SC_NAME; }
+                else if (i == 2) { retScene = SC_HOME; sSet = 0; scene = SC_SETTINGS; }
                 else quit = true;
             }
         }
+        centerText("Made by Habibig04   |   github.com/Habibig04", H / 6 + S(180), S(22), C(255, 220, 90), W);
         centerText("WASD move   SHIFT sprint   SPACE jump   LMB shoot   RMB scope   R reload   1-4 weapons   TAB scoreboard   ESC pause",
                    H - S(40), S(18), C(230, 230, 230), W);
+    }
+
+    void drawName(float dt) {
+        (void)dt;
+        int W = GetScreenWidth(), H = GetScreenHeight();
+        DrawRectangleGradientV(0, 0, W, H, C(10, 12, 20), C(40, 46, 62));
+        centerText("PLAYER NAME", H / 4, S(50), WHITE, W);
+        int c = GetCharPressed();
+        while (c != 0) {
+            bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == ' ';
+            if (ok && nameBuf.size() < 12) nameBuf += (char)c;
+            c = GetCharPressed();
+        }
+        if (IsKeyPressed(KEY_BACKSPACE) && !nameBuf.empty()) nameBuf.pop_back();
+        Rectangle box = RR((float)(W / 2 - S(260)), (float)(H / 2 - S(40)), (float)S(520), (float)S(70));
+        DrawRectangleRec(box, C(12, 14, 22, 230));
+        DrawRectangleLines((int)box.x, (int)box.y, (int)box.width, (int)box.height, C(255, 190, 60));
+        std::string shown = nameBuf + (((int)(GetTime() * 2.0)) % 2 ? "" : "_");
+        centerText(shown.c_str(), H / 2 - S(26), S(40), C(255, 220, 90), W);
+        centerText("ENTER to save    ESC to cancel", H / 2 + S(60), S(20), C(200, 200, 200), W);
+        centerText("Up to 12 letters, numbers, spaces, _ or -", H / 2 + S(90), S(16), C(160, 160, 160), W);
+        if (IsKeyPressed(KEY_ENTER)) {
+            size_t a = nameBuf.find_first_not_of(' ');
+            size_t b = nameBuf.find_last_not_of(' ');
+            std::string n = (a == std::string::npos) ? std::string("PLAYER") : nameBuf.substr(a, b - a + 1);
+            st.name = n;
+            clampSettings(st);
+            saveSettings(st, cfgPath.c_str());
+            scene = SC_HOME; sHome = 1;
+        }
+        if (IsKeyPressed(KEY_ESCAPE)) { scene = SC_HOME; sHome = 1; }
     }
 
     void drawMapSel(float dt) {
@@ -473,6 +508,7 @@ struct Game {
 
     void startMatch() {
         match.snd = &snd;
+        match.playerName = st.name;
         match.start(&map, selMode, selDiff, TARGET_OPTS[selTgt], TIME_OPTS[selTime]);
         scene = SC_PLAY;
         sinceStart = 0.f; perfT = 0.f; perfN = 0; cooldown = 0.f;
@@ -578,7 +614,7 @@ struct Game {
                 case 6: v = st.bob ? "ON" : "OFF"; break;
                 case 7: v = st.showFps ? "ON" : "OFF"; break;
                 case 8: v = st.autoQ ? "ON" : "OFF"; break;
-                case 9: v = IsWindowFullscreen() ? "ON" : "OFF"; break;
+                case 9: v = IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE) ? "ON" : "OFF"; break;
                 default: v = "PRESS ENTER"; break;
             }
             Rectangle r = RR((float)(W / 2 - S(330)), (float)(S(110) + i * S(46)), (float)S(660), (float)S(40));
@@ -594,9 +630,10 @@ struct Game {
                 case 6: st.bob = !st.bob; break;
                 case 7: st.showFps = !st.showFps; break;
                 case 8: st.autoQ = !st.autoQ; break;
-                case 9: ToggleFullscreen(); break;
+                case 9: ToggleBorderlessWindowed(); break;
                 default: {
                     Settings d;
+                    d.name = st.name;
                     d.quality = detectQuality();
                     d.scalePct = QSCALE[d.quality];
                     st = d;
@@ -671,7 +708,7 @@ struct Game {
         gUi = GetScreenHeight() / 720.f;
         makeRT(false);
         if (msgT > 0.f) msgT -= dt;
-        if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
+        if (IsKeyPressed(KEY_F11)) ToggleBorderlessWindowed();
         BeginDrawing();
         ClearBackground(BLACK);
         switch (scene) {
@@ -684,6 +721,7 @@ struct Game {
             case SC_PAUSE: drawPause(dt); break;
             case SC_SETTINGS: drawSettings(dt); break;
             case SC_END: drawEnd(dt); break;
+            case SC_NAME: drawName(dt); break;
         }
         EndDrawing();
     }
