@@ -62,7 +62,8 @@ struct Match {
     std::vector<Part> parts;
 
     bool solo() const { return mode == MODE_SOLO; }
-    std::string nameOf(int i) const { return i == 0 ? std::string("YOU") : "BOT " + std::to_string(i); }
+    std::string playerName = "YOU";
+    std::string nameOf(int i) const { return i == 0 ? playerName : "BOT " + std::to_string(i); }
 
     void start(Map* m, int md, int df, int tgt, int minutes) {
         mp = m; mode = md; diff = df; target = tgt;
