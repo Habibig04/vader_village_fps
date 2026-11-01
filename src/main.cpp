@@ -51,6 +51,8 @@ struct Game {
     Model vader{};
     Model wm[4]{};
     Texture2D title{};
+    RenderTexture2D sceneRT{}, vmRT{};
+    int rtW = 0, rtH = 0;
     Scene scene = SC_HOME, retScene = SC_HOME;
     int selMap = 0, previewMap = -1, selMode = MODE_TDM5, selDiff = 1, selTgt = 2, selTime = 1;
     int sHome = 0, sMap = 0, sMode = 0, sDiff = 1, sPause = 0, sSet = 0, sEnd = 0;
@@ -74,7 +76,18 @@ struct Game {
         if (map.ready) map.applyFilter(st.quality <= Q_MEDIUM);
     }
 
-    void makeRT(bool) {}
+    void makeRT(bool force) {
+        if (force || !rtW) rtW = 1;
+        return;
+        int W = GetScreenWidth(), H = GetScreenHeight();
+        int rw = std::max(320, W * st.scalePct / 100), rh = std::max(240, H * st.scalePct / 100);
+        if (!force && rw == rtW && rh == rtH) return;
+        if (rtW) { UnloadRenderTexture(sceneRT); UnloadRenderTexture(vmRT); }
+        sceneRT = LoadRenderTexture(rw, rh);
+        vmRT = LoadRenderTexture(rw, rh);
+        SetTextureFilter(sceneRT.texture, TEXTURE_FILTER_BILINEAR);
+        rtW = rw; rtH = rh;
+    }
 
     bool ensureMap(int idx) {
         if (map.id == idx && map.ready) return true;
@@ -110,6 +123,7 @@ struct Game {
         snd.kill = MakeSfx(0.2f, 300, 0.3f, 12, 0.5f);
         snd.click = MakeSfx(0.05f, 600, 0.5f, 30, 0.4f);
         match.snd = &snd;
+        makeRT(true);
         applySettings();
         ensureMap(0);
     }
@@ -702,6 +716,7 @@ struct Game {
             }
             clampSettings(st);
             applySettings();
+            makeRT(false);
         }
         Rectangle rb = RR((float)(W / 2 - S(330)), (float)(S(110) + 11 * S(46) + S(10)), (float)S(660), (float)S(46));
         bool leave = IsKeyPressed(KEY_ESCAPE);
@@ -764,6 +779,7 @@ struct Game {
     void frame() {
         float dt = fminf(GetFrameTime(), 0.05f);
         gUi = GetScreenHeight() / 720.f;
+        makeRT(false);
         if (msgT > 0.f) msgT -= dt;
         if (IsKeyPressed(KEY_F11)) ToggleBorderlessWindowed();
         BeginDrawing();
