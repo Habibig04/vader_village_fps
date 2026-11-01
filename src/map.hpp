@@ -36,6 +36,7 @@ struct Map {
     std::vector<unsigned char> gcnt, gmain;
     std::vector<float> glvl;
     std::vector<int> mainNodes;
+    std::vector<int> spawnNodes;
     mutable std::vector<float> gG;
     mutable std::vector<int> gPar;
     mutable std::vector<unsigned char> gDone;
@@ -63,6 +64,7 @@ struct Map {
         std::vector<int>().swap(gPar);
         std::vector<unsigned char>().swap(gDone);
         std::vector<int>().swap(mainNodes);
+        std::vector<int>().swap(spawnNodes);
         ready = false; failed = false; id = -1; stage = 0; left = 0; total = 0; gw = 0; gh = 0;
     }
 
@@ -319,6 +321,31 @@ struct Map {
         mainNodes.clear();
         for (size_t s = 0; s < N; s++)
             if (bestC >= 0 && comp[s] == bestC) { gmain[s] = 1; mainNodes.push_back((int)s); }
+        pickSpawnLevel();
+    }
+
+    void pickSpawnLevel() {
+        spawnNodes.clear();
+        std::vector<int> cnt(64, 0);
+        for (int u : mainNodes) {
+            int b = (int)floorf(glvl[u] * 2.f);
+            if (b >= 0 && b < 64) cnt[b]++;
+        }
+        int bestB = -1, bestCnt = 0;
+        for (int b = 2; b < 64; b++)
+            if (cnt[b] >= 200 && cnt[b] > bestCnt) { bestCnt = cnt[b]; bestB = b; }
+        for (int u : mainNodes) {
+            if (bestB < 0) { spawnNodes = mainNodes; return; }
+            int b = (int)floorf(glvl[u] * 2.f);
+            if (b == bestB) spawnNodes.push_back(u);
+        }
+        if (spawnNodes.empty()) spawnNodes = mainNodes;
+    }
+
+    int spawnNode() const {
+        const std::vector<int>& v = spawnNodes.empty() ? mainNodes : spawnNodes;
+        if (v.empty()) return -1;
+        return v[GetRandomValue(0, (int)v.size() - 1)];
     }
 
     template <class F> void forNeighbors(int u, F fn) const {
