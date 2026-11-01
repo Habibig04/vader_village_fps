@@ -9,7 +9,7 @@
 #include "match.hpp"
 #include "ui.hpp"
 
-enum Scene { SC_HOME, SC_MAPSEL, SC_MODESEL, SC_DIFFSEL, SC_LOADING, SC_PLAY, SC_PAUSE, SC_SETTINGS, SC_END, SC_NAME };
+enum Scene { SC_HOME, SC_MAPSEL, SC_MODESEL, SC_DIFFSEL, SC_LOADING, SC_PLAY, SC_PAUSE, SC_SETTINGS, SC_END, SC_NAME, SC_DEPLOY };
 
 static const char* TIPS[] = {
     "Headshots deal 2.5 times the normal damage.",
@@ -51,8 +51,6 @@ struct Game {
     Model vader{};
     Model wm[4]{};
     Texture2D title{};
-    RenderTexture2D sceneRT{}, vmRT{};
-    int rtW = 0, rtH = 0;
     Scene scene = SC_HOME, retScene = SC_HOME;
     int selMap = 0, previewMap = -1, selMode = MODE_TDM5, selDiff = 1, selTgt = 2, selTime = 1;
     int sHome = 0, sMap = 0, sMode = 0, sDiff = 1, sPause = 0, sSet = 0, sEnd = 0;
@@ -65,6 +63,8 @@ struct Game {
     int perfN = 0;
     bool quit = false;
     std::string nameBuf;
+    std::vector<int> spots;
+    int spotSel = 0;
 
     void setMsg(const std::string& m, float t = 2.5f) { msg = m; msgT = t; }
 
@@ -74,16 +74,7 @@ struct Game {
         if (map.ready) map.applyFilter(st.quality <= Q_MEDIUM);
     }
 
-    void makeRT(bool force) {
-        int W = GetScreenWidth(), H = GetScreenHeight();
-        int rw = std::max(320, W * st.scalePct / 100), rh = std::max(240, H * st.scalePct / 100);
-        if (!force && rw == rtW && rh == rtH) return;
-        if (rtW) { UnloadRenderTexture(sceneRT); UnloadRenderTexture(vmRT); }
-        sceneRT = LoadRenderTexture(rw, rh);
-        vmRT = LoadRenderTexture(rw, rh);
-        SetTextureFilter(sceneRT.texture, TEXTURE_FILTER_BILINEAR);
-        rtW = rw; rtH = rh;
-    }
+    void makeRT(bool) {}
 
     bool ensureMap(int idx) {
         if (map.id == idx && map.ready) return true;
@@ -119,7 +110,6 @@ struct Game {
         snd.kill = MakeSfx(0.2f, 300, 0.3f, 12, 0.5f);
         snd.click = MakeSfx(0.05f, 600, 0.5f, 30, 0.4f);
         match.snd = &snd;
-        makeRT(true);
         applySettings();
         ensureMap(0);
     }
@@ -194,15 +184,11 @@ struct Game {
     void show3D(const Camera3D& cam, float dist, bool gameplay) {
         int W = GetScreenWidth(), H = GetScreenHeight();
         Vector3 f = Vector3Normalize(cam.target - cam.position);
-        BeginTextureMode(sceneRT);
-        ClearBackground(C(105, 155, 215));
-        DrawRectangleGradientV(0, 0, rtW, rtH, C(105, 155, 215), C(225, 235, 242));
+        DrawRectangleGradientV(0, 0, W, H, C(105, 155, 215), C(225, 235, 242));
         BeginMode3D(cam);
         if (map.ready) map.draw(cam.position, f, dist);
         if (gameplay) drawActors(cam, f, dist);
         EndMode3D();
-        EndTextureMode();
-        DrawTexturePro(sceneRT.texture, RR(0, 0, (float)rtW, -(float)rtH), RR(0, 0, (float)W, (float)H), V2(0, 0), 0.f, WHITE);
         if (gameplay && match.A[0].alive) drawViewmodel();
     }
 
@@ -502,10 +488,86 @@ struct Game {
         return selMode == MODE_SOLO ? TextFormat("SINGLE  %d MIN", TIME_OPTS[selTime]) : TextFormat("TEAM DEATHMATCH  FIRST TO %d", TARGET_OPTS[selTgt]);
     }
 
-    void startMatch() {
+    std::vector<int> pickSpots(int n) {
+        std::vector<int> out;
+        const std::vector<int>& v = map.spawnNodes.empty() ? map.mainNodes : map.spawnNodes;
+        if (v.empty()) return out;
+        std::vector<int> cand;
+        int step = std::max(1, (int)v.size() / 2500);
+        for (size_t i = 0; i < v.size(); i += step) {
+            Vector3 p = map.nodePos(v[i]);
+            if (fabsf(p.x - map.mid.x) <= map.radius * 0.8f && fabsf(p.z - map.mid.z) <= map.radius * 0.8f) cand.push_back(v[i]);
+        }
+        if (cand.empty()) return out;
+        out.push_back(cand[GetRandomValue(0, (int)cand.size() - 1)]);
+        while ((int)out.size() < n) {
+            int best = -1;
+            float bd = -1.f;
+            for (int c : cand) {
+                Vector3 pc = map.nodePos(c);
+                float md = 1e9f;
+                for (int o : out) {
+                    Vector3 po = map.nodePos(o);
+                    float dx = pc.x - po.x, dz = pc.z - po.z;
+                    md = fminf(md, dx * dx + dz * dz);
+                }
+                if (md > bd) { bd = md; best = c; }
+            }
+            if (best < 0) break;
+            out.push_back(best);
+        }
+        return out;
+    }
+
+    void enterDeploy() {
+        spots = pickSpots(10);
+        spotSel = 0;
+        mapT = 0.f;
+        scene = SC_DEPLOY;
+    }
+
+    void drawDeploy(float dt) {
+        int W = GetScreenWidth();
+        bgT += dt;
+        if (map.ready) show3D(mapCam(map, bgT, 0.6f), 1000.f, false);
+        dimAll(150);
+        centerText("CHOOSE YOUR DROP ZONE", S(30), S(40), WHITE, W);
+        centerText("Enemies will spawn on the far side of the map.", S(84), S(20), C(220, 220, 220), W);
+        int n = (int)spots.size();
+        if (n == 0) { setMsg("NO DROP ZONES FOUND"); scene = SC_HOME; sHome = 0; return; }
+        navKeys(spotSel, n);
+        float rx = (float)S(60), ry = (float)S(150), rs = (float)S(480);
+        DrawRectangleRec(RR(rx, ry, rs, rs), C(0, 0, 0, 170));
+        DrawRectangleLines((int)rx, (int)ry, (int)rs, (int)rs, C(100, 105, 125));
+        float R = map.radius;
+        Vector2 mouse = GetMousePosition();
+        int clickedSpot = -1;
+        for (int i = 0; i < n; i++) {
+            Vector3 p = map.nodePos(spots[i]);
+            float px = rx + (p.x - (map.mid.x - R)) / (2 * R) * rs;
+            float pz = ry + (p.z - (map.mid.z - R)) / (2 * R) * rs;
+            bool on = spotSel == i;
+            DrawCircle((int)px, (int)pz, on ? (float)S(9) : (float)S(6), on ? C(255, 220, 90) : C(120, 200, 255));
+            DrawText(TextFormat("%d", i + 1), (int)px + S(9), (int)pz - S(9), S(16), WHITE);
+            if (CheckCollisionPointRec(mouse, RR(px - S(10), pz - S(10), (float)S(20), (float)S(20)))) {
+                spotSel = i;
+                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) clickedSpot = i;
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            Rectangle r = RR((float)(W - S(380)), (float)(S(150) + i * S(46)), (float)S(340), (float)S(40));
+            char lbl[48];
+            snprintf(lbl, sizeof lbl, "DROP ZONE %d", i + 1);
+            if (button(i, spotSel, r, lbl, S(20))) clickedSpot = i;
+        }
+        if (clickedSpot >= 0) { startMatch(spots[clickedSpot]); return; }
+        if (IsKeyPressed(KEY_ESCAPE)) { scene = SC_HOME; sHome = 0; }
+    }
+
+    void startMatch(int playerNode) {
         match.snd = &snd;
         match.playerName = st.name;
-        match.start(&map, selMode, selDiff, TARGET_OPTS[selTgt], TIME_OPTS[selTime]);
+        match.start(&map, selMode, selDiff, TARGET_OPTS[selTgt], TIME_OPTS[selTime], playerNode);
         scene = SC_PLAY;
         sinceStart = 0.f; perfT = 0.f; perfN = 0; cooldown = 0.f;
         DisableCursor();
@@ -542,7 +604,7 @@ struct Game {
         bar(RR((float)(W / 2 - S(300)), (float)(H * 0.6f), (float)S(600), (float)S(22)), loadShown, C(255, 190, 60), C(40, 40, 50));
         centerText(TextFormat("%d%%", (int)(loadShown * 100.f)), (int)(H * 0.6f) + S(30), S(20), WHITE, W);
         centerText(TIPS[(int)(loadT / 2.5f) % TIP_COUNT], H - S(90), S(22), C(200, 200, 200), W);
-        if (map.ready && loadT >= 1.6f && loadShown > 0.97f) startMatch();
+        if (map.ready && loadT >= 1.6f && loadShown > 0.97f) enterDeploy();
     }
 
     void drawPlay(float dt) {
@@ -640,7 +702,6 @@ struct Game {
             }
             clampSettings(st);
             applySettings();
-            makeRT(false);
         }
         Rectangle rb = RR((float)(W / 2 - S(330)), (float)(S(110) + 11 * S(46) + S(10)), (float)S(660), (float)S(46));
         bool leave = IsKeyPressed(KEY_ESCAPE);
@@ -694,7 +755,7 @@ struct Game {
         Rectangle r1 = RR((float)(W / 2 - S(360)), (float)(H - S(170)), (float)S(340), (float)S(56));
         Rectangle r2 = RR((float)(W / 2 + S(20)), (float)(H - S(170)), (float)S(340), (float)S(56));
         if (button(0, sEnd, r1, "PLAY AGAIN", S(24))) {
-            if (ensureMap(selMap)) startMatch();
+            if (ensureMap(selMap)) enterDeploy();
             return;
         }
         if (button(1, sEnd, r2, "MAIN MENU", S(24)) || IsKeyPressed(KEY_ESCAPE)) { scene = SC_HOME; sHome = 0; }
@@ -703,7 +764,6 @@ struct Game {
     void frame() {
         float dt = fminf(GetFrameTime(), 0.05f);
         gUi = GetScreenHeight() / 720.f;
-        makeRT(false);
         if (msgT > 0.f) msgT -= dt;
         if (IsKeyPressed(KEY_F11)) ToggleBorderlessWindowed();
         BeginDrawing();
@@ -719,6 +779,7 @@ struct Game {
             case SC_SETTINGS: drawSettings(dt); break;
             case SC_END: drawEnd(dt); break;
             case SC_NAME: drawName(dt); break;
+            case SC_DEPLOY: drawDeploy(dt); break;
         }
         EndDrawing();
     }
