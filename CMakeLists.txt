@@ -6,6 +6,10 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm|ARM|AARCH64")
+  set(GRAPHICS "GRAPHICS_API_OPENGL_ES2" CACHE STRING "" FORCE)
+endif()
+
 find_package(raylib 5.0 QUIET)
 if(NOT raylib_FOUND)
   include(FetchContent)
