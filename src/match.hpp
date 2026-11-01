@@ -65,7 +65,7 @@ struct Match {
     std::string playerName = "YOU";
     std::string nameOf(int i) const { return i == 0 ? playerName : "BOT " + std::to_string(i); }
 
-    void start(Map* m, int md, int df, int tgt, int minutes) {
+    void start(Map* m, int md, int df, int tgt, int minutes, int playerNode) {
         mp = m; mode = md; diff = df; target = tgt;
         over = false; winTeam = -1; winActor = -1;
         teamScore[0] = teamScore[1] = 0;
@@ -86,26 +86,45 @@ struct Match {
             a.wanderDir = V(1, 0, 0);
             A.push_back(a);
         }
-        for (int i = 0; i < (int)A.size(); i++) spawn(i);
+        if (playerNode >= 0) placeAt(0, mp->nodePos(playerNode));
+        else spawn(0);
+        for (int i = 1; i < total; i++) placeAt(i, pickFar(i));
     }
 
-    void spawn(int i) {
-        Actor& a = A[i];
-        Vector3 best = a.pos;
-        float bestScore = -1.f;
-        for (int k = 0; k < 40; k++) {
-            int u = mp->randomNode();
+    Vector3 pickFar(int i) {
+        Vector3 from = A[0].pos;
+        float R = mp->radius;
+        if (!solo() && A[i].team == A[0].team) {
+            Vector3 best = from;
+            float bestErr = 1e9f;
+            bool found = false;
+            for (int k = 0; k < 400; k++) {
+                int u = mp->randomNode();
+                if (u < 0) break;
+                Vector3 p = mp->nodePos(u);
+                float d = sqrtf((p.x - from.x) * (p.x - from.x) + (p.z - from.z) * (p.z - from.z));
+                if (d < 8.f) continue;
+                float err = fabsf(d - 25.f);
+                if (err < bestErr) { bestErr = err; best = p; found = true; }
+            }
+            if (found) return best;
+        }
+        Vector3 best = mp->nodePos(mp->spawnNode() >= 0 ? mp->spawnNode() : mp->randomNode());
+        float bestD = -1.f;
+        for (int k = 0; k < 160; k++) {
+            int u = mp->spawnNode();
             if (u < 0) break;
             Vector3 p = mp->nodePos(u);
-            float md = 1e9f;
-            for (size_t j = 0; j < A.size(); j++) {
-                if ((int)j == i || !A[j].alive || A[j].team == a.team) continue;
-                float dx = A[j].pos.x - p.x, dz = A[j].pos.z - p.z;
-                md = fminf(md, sqrtf(dx * dx + dz * dz));
-            }
-            if (md > bestScore) { bestScore = md; best = p; }
+            if (fabsf(p.x - mp->mid.x) > R * 0.8f || fabsf(p.z - mp->mid.z) > R * 0.8f) continue;
+            float d = sqrtf((p.x - from.x) * (p.x - from.x) + (p.z - from.z) * (p.z - from.z));
+            if (d > bestD) { bestD = d; best = p; }
         }
-        a.pos = best;
+        return best;
+    }
+
+    void placeAt(int i, Vector3 p) {
+        Actor& a = A[i];
+        a.pos = p;
         a.vel = V(0, 0, 0);
         a.yaw = frange(-PI, PI);
         a.pitch = 0;
@@ -115,6 +134,25 @@ struct Match {
         a.target = -1; a.path.clear(); a.pathPos = 0; a.stuckT = 0; a.replanT = 0;
         a.lastPos = a.pos;
         for (int w = 0; w < 4; w++) { a.mag[w] = WDEFS[w].mag; a.res[w] = WDEFS[w].reserve; }
+    }
+
+    void spawn(int i) {
+        Vector3 best = A[i].pos;
+        float bestScore = -1.f;
+        for (int k = 0; k < 40; k++) {
+            int u = mp->spawnNode();
+            if (u < 0) break;
+            Vector3 p = mp->nodePos(u);
+            if (fabsf(p.x - mp->mid.x) > mp->radius * 0.8f || fabsf(p.z - mp->mid.z) > mp->radius * 0.8f) continue;
+            float md = 1e9f;
+            for (size_t j = 0; j < A.size(); j++) {
+                if ((int)j == i || !A[j].alive || A[j].team == A[i].team) continue;
+                float dx = A[j].pos.x - p.x, dz = A[j].pos.z - p.z;
+                md = fminf(md, sqrtf(dx * dx + dz * dz));
+            }
+            if (md > bestScore) { bestScore = md; best = p; }
+        }
+        placeAt(i, best);
     }
 
     void burst(Vector3 pos, Vector3 n, Color c, int cnt) {
@@ -423,11 +461,15 @@ struct Match {
         Actor& p = A[0];
         bool inside = mp->blocked(p.pos.x, p.pos.y, p.pos.z, 0.35f, 1.8f);
         if (p.pos.y < 0.3f || inside) {
-            int u = mp->randomNode();
-            if (u >= 0) {
-                p.pos = mp->nodePos(u);
+            for (int k = 0; k < 40; k++) {
+                int u = mp->spawnNode();
+                if (u < 0) break;
+                Vector3 np = mp->nodePos(u);
+                if (fabsf(np.x - mp->mid.x) > mp->radius * 0.8f || fabsf(np.z - mp->mid.z) > mp->radius * 0.8f) continue;
+                p.pos = np;
                 p.vel = V(0, 0, 0);
                 p.grounded = true;
+                break;
             }
         }
     }
