@@ -17,6 +17,10 @@ jobs:
             name: linux-arm64
           - os: windows-latest
             name: windows-x64
+          - os: macos-latest
+            name: macos-arm64
+          - os: macos-13
+            name: macos-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +29,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential git libasound2-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev
+          sudo apt-get install -y cmake build-essential git imagemagick wget libasound2-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -33,13 +37,32 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Package (Linux)
+      - name: Package (Linux AppImage)
         if: runner.os == 'Linux'
         run: |
-          mkdir -p dist/vader-village
-          cp build/game dist/vader-village/
-          cp -r build/assets dist/vader-village/
-          tar -czf vader-village-${{ matrix.name }}.tar.gz -C dist vader-village
+          export ARCH=$(uname -m)
+          APPDIR=Vader-Village.AppDir
+          mkdir -p "$APPDIR/usr/bin"
+          cp build/game "$APPDIR/usr/bin/"
+          cp -r build/assets "$APPDIR/usr/bin/"
+          cat > "$APPDIR/AppRun" << 'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          cd "$HERE/usr/bin" && exec ./game "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+          cat > "$APPDIR/vader-village.desktop" << 'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Vader Village
+          Exec=game
+          Icon=vader-village
+          Categories=Game;
+          EOF
+          convert assets/ui/title.png -resize 256x256! "$APPDIR/vader-village.png"
+          wget -q -O appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage"
+          chmod +x appimagetool
+          APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool "$APPDIR" "vader-village-${{ matrix.name }}.AppImage"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -49,6 +72,33 @@ jobs:
           Copy-Item build/Release/game.exe dist/vader-village/
           Copy-Item -Recurse build/Release/assets dist/vader-village/
           Compress-Archive -Path dist/vader-village/* -DestinationPath vader-village-${{ matrix.name }}.zip
+
+      - name: Package (macOS app and DMG)
+        if: runner.os == 'macOS'
+        run: |
+          APP=dist/Vader-Village.app
+          mkdir -p "$APP/Contents/MacOS"
+          cp build/game "$APP/Contents/MacOS/game"
+          cp -R build/assets "$APP/Contents/MacOS/assets"
+          cat > "$APP/Contents/Info.plist" << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Vader Village</string>
+            <key>CFBundleDisplayName</key><string>Vader Village</string>
+            <key>CFBundleIdentifier</key><string>com.habibig04.vadervillage</string>
+            <key>CFBundleVersion</key><string>1.0</string>
+            <key>CFBundleShortVersionString</key><string>1.0</string>
+            <key>CFBundleExecutable</key><string>game</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          chmod +x "$APP/Contents/MacOS/game"
+          hdiutil create -volname "Vader Village" -srcfolder dist -ov -format UDZO "vader-village-${{ matrix.name }}.dmg"
 
       - uses: actions/upload-artifact@v4
         with:
